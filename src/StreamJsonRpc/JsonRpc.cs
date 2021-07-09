@@ -267,6 +267,11 @@ namespace StreamJsonRpc
             }
         }
 
+        /// <summary>
+        /// 接收到了未知ID的结果信息
+        /// </summary>
+        public event EventHandler<JsonRpcResult> ResultWithoutIDArrived;
+
         /// <inheritdoc/>
         event EventHandler<JsonRpcMessageEventArgs> IJsonRpcFormatterCallbacks.RequestTransmissionAborted
         {
@@ -694,6 +699,28 @@ namespace StreamJsonRpc
             where T : class
         {
             return Attach<T>(handler, options: null);
+        }
+
+        /// <summary>
+        /// Creates a JSON-RPC client proxy that conforms to the specified server interface.
+        /// </summary>
+        /// <param name="handler">The message handler to use.</param>
+        /// <param name="options">A set of customizations for how the client proxy is wired up. If <c>null</c>, default options will be used.</param>
+        /// <param name="rpc"></param>
+        /// <typeparam name="T">The interface that describes the functions available on the remote end.</typeparam>
+        /// <returns>
+        /// An instance of the generated proxy.
+        /// In addition to implementing <typeparamref name="T"/>, it also implements <see cref="IDisposable"/>
+        /// and should be disposed of to close the connection.
+        ///</returns>
+        public static T Attach<T>(IJsonRpcMessageHandler handler, JsonRpcProxyOptions? options, out JsonRpc rpc)
+                 where T : class
+        {
+            TypeInfo proxyType = ProxyGeneration.Get(typeof(T).GetTypeInfo());
+            rpc = new JsonRpc(handler);
+            T proxy = (T)Activator.CreateInstance(proxyType.AsType(), rpc, options ?? JsonRpcProxyOptions.Default, options?.OnDispose)!;
+            rpc.StartListening();
+            return proxy;
         }
 
         /// <summary>
@@ -2436,6 +2463,15 @@ namespace StreamJsonRpc
                         if (this.resultDispatcherMap.TryGetValue(resultOrError.RequestId, out data))
                         {
                             this.resultDispatcherMap.Remove(resultOrError.RequestId);
+                        }
+                        else
+                        {
+                            if (result != null)
+                            {
+                                result.SetExpectedResultType(typeof(Dictionary<string, object>));
+                                ResultWithoutIDArrived?.Invoke(this, (JsonRpcResult)result);
+                                return;
+                            }
                         }
                     }
 
